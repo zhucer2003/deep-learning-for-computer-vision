@@ -165,6 +165,7 @@ class FullyConnectedNet(object):
         self.params = {}
         self.cache = {}
         self.cache_activations = {}
+        self.cache_bn = {}
 
         ############################################################################
         # TODO: Initialize the parameters of the network, storing all values in    #
@@ -179,30 +180,28 @@ class FullyConnectedNet(object):
         # parameters should be initialized to zero.                                #
         ############################################################################
         for i in range(self.num_layers):
-            self.cache['W' + str(i+1)] = None
-            self.cache_activations['W' + str(i + 1)] = None
 
+            # init scale and shift parameters for BN layer
+            # self.gammas['gamma'+str(i+1)] = 1
+            # self.betas['beta'+str(i + 1)] = 0
+            self.cache_bn['W%i'%(i+1)] = (None, None, 0, 1, None, None, None, None, None)
+
+            # init cache dictionaries for each layer
+            self.cache['W%i'%(i+1)] = None
+            self.cache_activations['W%i'%(i+1)] = None
 
             if i == 0: # first layer
-                self.params['W' + str(i+1)] = \
+                self.params['W%i'%(i+1)] = \
                     weight_scale * np.random.randn(input_dim, hidden_dims[i])
-                self.params['b' + str(i+1)] = np.zeros(hidden_dims[i])
+                self.params['b%i'%(i+1)] = np.zeros(hidden_dims[i])
             elif i == self.num_layers-1: # output layer
-                self.params['W' + str(i+1)] = \
+                self.params['W%i'%(i+1)] = \
                     weight_scale * np.random.randn(hidden_dims[i-1], num_classes)
-                self.params['b' + str(i+1)] = np.zeros(num_classes)
+                self.params['b%i'%(i+1)] = np.zeros(num_classes)
             else:
-                self.params['W' + str(i+1)] = \
+                self.params['W%i'%(i+1)] = \
                     weight_scale * np.random.randn(hidden_dims[i - 1], hidden_dims[i])
-                self.params['b' + str(i+1)] = np.zeros(hidden_dims[i])
-        # for key, value in self.params.iteritems():
-        #     print key, " has shape: ", value.shape
-        # print "keys cache"
-        # for key in self.cache:
-        #     print key
-        # print "keys cache activations"
-        # for key in self.cache_activations:
-        #     print key
+                self.params['b%i'%(i+1)] = np.zeros(hidden_dims[i])
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
@@ -259,18 +258,14 @@ class FullyConnectedNet(object):
         # self.bn_params[1] to the forward pass for the second batch normalization #
         # layer, etc.                                                              #
         ############################################################################
+        fwd = X  # for first layer, but these will update!
 
-        for i in xrange(self.num_layers):
-            if i == 0: # first layer
-                fwd, self.cache['W'+str(i+1)] = affine_forward(X, self.params['W'+str(i+1)], self.params['b'+str(i+1)])
-                fwd, self.cache_activations['W'+str(i+1)] = relu_forward(fwd)
-            elif i == self.num_layers-1: # output layer
-                fwd, self.cache['W' + str(i + 1)] = affine_forward(fwd, self.params['W' + str(i + 1)],
-                                                                   self.params['b' + str(i + 1)])
-            else:
-                fwd, self.cache['W' + str(i + 1)] = affine_forward(fwd, self.params['W' + str(i + 1)],
-                                                                   self.params['b' + str(i + 1)])
-                fwd, self.cache_activations['W' + str(i + 1)] = relu_forward(fwd)
+        for i in xrange(self.num_layers-1):
+            fwd, self.cache['W%i'%(i+1)] = affine_forward(fwd, self.params['W%i'%(i+1)], self.params['b%i'%(i+1)])
+            fwd, self.cache_activations['W' + str(i + 1)] = relu_forward(fwd)
+            # fwd, (self.cache['W' + str(i + 1)], self.cache_activations['W' + str(i + 1)]) = affine_relu_forward(fwd, self.params['W' + str(i + 1)], self.params['b' + str(i + 1)])
+        i += 1 # increment one more time after loop termination
+        fwd, self.cache['W%i'%(i+1)] = affine_forward(fwd, self.params['W%i'%(i+1)], self.params['b%i'%(i+1)])
 
         scores = fwd
         ############################################################################
@@ -298,26 +293,19 @@ class FullyConnectedNet(object):
         ############################################################################
 
 
-        # dx, grads['W2'], grads['b2'] = affine_backward(grad_loss, cache_fc2)
-        # dx = relu_backward(dx, cache_act1)
-        # dx, grads['W1'], grads['b1'] = affine_backward(dx, cache_fc1)
-
-
         data_loss, grad_loss = softmax_loss(scores, y)
+        # add regularization for all layers
         for key in self.cache:
             reg_loss += 0.5 * self.reg * np.sum(self.params[key] * self.params[key])
-        loss = data_loss + reg_loss
+        loss = data_loss + reg_loss # overall loss
 
-        for i in xrange(self.num_layers-1, -1, -1):
-            if i == self.num_layers-1: # output layer
-                dx, grads['W' + str(i)], grads['b' + str(i)] = affine_backward(grad_loss, self.cache['W' + str(i)])
-                dx = relu_backward(dx, self.cache_activations['W' + str(i - 1)])
-            elif i == 0: # first hidden layer
-                dx, grads['W' + str(i)], grads['b' + str(i)] = affine_backward(grad_loss, self.cache['W' + str(i)])
-            else:
-                dx, grads['W' + str(i)], grads['b' + str(i)] = affine_backward(dx, self.cache['W' + str(i)])
-                dx = relu_backward(dx, self.cache_activations['W' + str(i-1)])
-            grads['W' + str(i)] += self.reg * self.params['W' + str(i)]
+        dx = grad_loss # for last layer only, then it will be updated !
+        for i in xrange(self.num_layers-1, 0, -1): # iterate in reverse order
+            dx, grads['W%i'%(i+1)], grads['b%i'%(i+1)] = affine_backward(dx, self.cache['W%i'%(i+1)])
+            dx = relu_backward(dx, self.cache_activations['W%i'%(i)])
+            grads['W%i'%(i+1)] += self.reg * self.params['W%i'%(i+1)] # add regularization for all layers
+        i -= 1 # decrement one more time after loop termination
+        dx, grads['W%i' % (i + 1)], grads['b' + str(i + 1)] = affine_backward(dx, self.cache['W%i' % (i + 1)])
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################

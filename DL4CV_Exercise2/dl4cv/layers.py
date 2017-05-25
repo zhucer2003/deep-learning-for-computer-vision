@@ -161,19 +161,19 @@ def batchnorm_forward(x, gamma, beta, bn_param):
 
     out, cache = None, None
     if mode == 'train':
-        sample_mean = np.mean(x, axis=0)
+        sample_mean = np.mean(x, axis=0) # "mini-batch mean" for each dimension
 
-        x_minus_mean = x - sample_mean
+        x_minus_mean = x - sample_mean # nominator of "normalize"
 
-        sq = x_minus_mean ** 2
+        sq = x_minus_mean ** 2 # square term of "mini-batch variance"
 
-        var = 1. / N * np.sum(sq, axis=0)
+        var = 1. / N * np.sum(sq, axis=0) # "mini-batch variance"
 
-        sqrtvar = np.sqrt(var + eps)
+        sqrtvar = np.sqrt(var + eps) # denominator of "normalize"
 
         ivar = 1. / sqrtvar
 
-        x_norm = x_minus_mean * ivar
+        x_norm = x_minus_mean * ivar # "normalize"
 
         gammax = gamma * x_norm
 
@@ -220,7 +220,41 @@ def batchnorm_backward(dout, cache):
     # TODO: Implement the backward pass for batch normalization. Store the      #
     # results in the dx, dgamma, and dbeta variables.                           #
     #############################################################################
-    pass
+    (out, x_norm, beta, gamma, x_minus_mean, ivar, sqrtvar, var, eps) = cache
+
+    (N, D) = out.shape
+
+    # backprop out = gammax + beta
+    dbeta = np.sum(dout, axis=0) # dout * 1 (D, )
+    dgammax = dout # dout * 1 (N, D)
+
+    # backprop gammax = gamma * x_norm
+    dgamma = np.sum(dgammax * x_norm, axis=0) # (D, )
+    dx_norm = dgammax * gamma # (N, D)
+
+    # backprop x_norm = x_minus_mean * ivar
+    dx_minus_mean = ivar * dx_norm # (N, D)
+    divar = np.sum(x_minus_mean * dx_norm, axis=0) # (D, )
+
+    # backprop ivar = 1. / sqrtvar
+    dsqrtvar = divar * (-1. / (sqrtvar**2)) # (D, )
+
+    # backprop sqrtvar = np.sqrt(var + eps)
+    dvar = 0.5 * 1. /np.sqrt(var + eps) * dsqrtvar # (D, )
+
+    # backprop var = 1. / N * np.sum(sq, axis=0)
+    dsq = 1. / N * np.ones((N, D)) * dvar # (N, D)
+
+    # backprop sq = x_minus_mean ** 2
+    dx_minus_mean += dsq * 2 * x_minus_mean # (N, D)
+
+    # backprop x_minus_mean = x - sample_mean
+    dx = dx_minus_mean # dx_minus_mean * 1 (N, D)
+    dsample_mean = -1. * np.sum(dx, axis=0) # -1. * dx_minus_mean * 1 (D, )
+
+    # backprop sample_mean = np.mean(x, axis=0)
+    dx += 1. / N * np.ones((N, D)) * dsample_mean # (N,D)
+
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################
