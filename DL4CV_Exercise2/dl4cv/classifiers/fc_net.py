@@ -164,9 +164,6 @@ class FullyConnectedNet(object):
         self.dtype = dtype
         self.params = {}
         self.cache = {}
-        self.cache_activations = {}
-        self.cache_bn = {}
-
         ############################################################################
         # TODO: Initialize the parameters of the network, storing all values in    #
         # the self.params dictionary. Store weights and biases for the first layer #
@@ -179,29 +176,28 @@ class FullyConnectedNet(object):
         # beta2, etc. Scale parameters should be initialized to one and shift      #
         # parameters should be initialized to zero.                                #
         ############################################################################
-        for i in range(self.num_layers):
 
-            # init scale and shift parameters for BN layer
-            # self.gammas['gamma'+str(i+1)] = 1
-            # self.betas['beta'+str(i + 1)] = 0
-            self.cache_bn['W%i'%(i+1)] = (None, None, 0, 1, None, None, None, None, None)
+        # init weights first layer
+        self.params['W%i' % 1] = \
+            weight_scale * np.random.randn(input_dim, hidden_dims[0])
+        self.params['b%i' % 1] = np.zeros(hidden_dims[0])
 
-            # init cache dictionaries for each layer
-            self.cache['W%i'%(i+1)] = None
-            self.cache_activations['W%i'%(i+1)] = None
+        # init weights hidden layer
+        for i in range(1, self.num_layers-1):
+            self.params['W%i'%(i+1)] = \
+                weight_scale * np.random.randn(hidden_dims[i - 1], hidden_dims[i])
+            self.params['b%i'%(i+1)] = np.zeros(hidden_dims[i])
 
-            if i == 0: # first layer
-                self.params['W%i'%(i+1)] = \
-                    weight_scale * np.random.randn(input_dim, hidden_dims[i])
-                self.params['b%i'%(i+1)] = np.zeros(hidden_dims[i])
-            elif i == self.num_layers-1: # output layer
-                self.params['W%i'%(i+1)] = \
-                    weight_scale * np.random.randn(hidden_dims[i-1], num_classes)
-                self.params['b%i'%(i+1)] = np.zeros(num_classes)
-            else:
-                self.params['W%i'%(i+1)] = \
-                    weight_scale * np.random.randn(hidden_dims[i - 1], hidden_dims[i])
-                self.params['b%i'%(i+1)] = np.zeros(hidden_dims[i])
+        # init weights output layer
+        self.params['W%i' % self.num_layers] = \
+            weight_scale * np.random.randn(hidden_dims[self.num_layers-2], num_classes)
+        self.params['b%i' % self.num_layers] = np.zeros(num_classes)
+
+        # init scale and shift for BN layers
+        if self.use_batchnorm:
+            for i in range(self.num_layers-1):
+                self.params['gamma%i' % (i + 1)] = np.ones(hidden_dims[i])
+                self.params['beta%i' % (i + 1)] = np.zeros(hidden_dims[i])
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
@@ -258,14 +254,22 @@ class FullyConnectedNet(object):
         # self.bn_params[1] to the forward pass for the second batch normalization #
         # layer, etc.                                                              #
         ############################################################################
-        fwd = X  # for first layer, but these will update!
 
-        for i in xrange(self.num_layers-1):
-            fwd, self.cache['W%i'%(i+1)] = affine_forward(fwd, self.params['W%i'%(i+1)], self.params['b%i'%(i+1)])
-            fwd, self.cache_activations['W' + str(i + 1)] = relu_forward(fwd)
-            # fwd, (self.cache['W' + str(i + 1)], self.cache_activations['W' + str(i + 1)]) = affine_relu_forward(fwd, self.params['W' + str(i + 1)], self.params['b' + str(i + 1)])
-        i += 1 # increment one more time after loop termination
-        fwd, self.cache['W%i'%(i+1)] = affine_forward(fwd, self.params['W%i'%(i+1)], self.params['b%i'%(i+1)])
+        out = X  # for first layer, but these will update!
+        if self.use_batchnorm:
+            for i in xrange(self.num_layers-1):
+                out, self.cache[i+1] = affine_bn_relu_forward(x=out, w=self.params['W%i'%(i+1)], b=self.params['b%i'%(i+1)],
+                                                              gamma=self.params['gamma%i'%(i+1)], beta=self.params['beta%i'%(i+1)], bn_param=self.bn_params[i])
+            # last layer has no ReLU activation
+            fwd, self.cache[self.num_layers] = affine_forward(out, self.params['W%i' % (self.num_layers)],
+                                                              self.params['b%i' % (self.num_layers)])
+        else:
+            for i in xrange(self.num_layers-1):
+                out, self.cache[i+1] = \
+                    affine_relu_forward(out, self.params['W%i'%(i+1)], self.params['b%i'%(i+1)])
+            # last layer has no ReLU activation
+            fwd, self.cache[self.num_layers] = affine_forward(out, self.params['W%i' % (self.num_layers)],
+                                                              self.params['b%i' % (self.num_layers)])
 
         scores = fwd
         ############################################################################
@@ -291,21 +295,34 @@ class FullyConnectedNet(object):
         # automated tests, make sure that your L2 regularization includes a factor #
         # of 0.5 to simplify the expression for the gradient.                      #
         ############################################################################
-
-
+        
         data_loss, grad_loss = softmax_loss(scores, y)
-        # add regularization for all layers
-        for key in self.cache:
-            reg_loss += 0.5 * self.reg * np.sum(self.params[key] * self.params[key])
+        # add regularization
+        for i in range(self.num_layers):
+            reg_loss += 0.5 * self.reg * np.sum(self.params['W%i'%(i+1)] * self.params['W%i'%(i+1)])
         loss = data_loss + reg_loss # overall loss
 
-        dx = grad_loss # for last layer only, then it will be updated !
-        for i in xrange(self.num_layers-1, 0, -1): # iterate in reverse order
-            dx, grads['W%i'%(i+1)], grads['b%i'%(i+1)] = affine_backward(dx, self.cache['W%i'%(i+1)])
-            dx = relu_backward(dx, self.cache_activations['W%i'%(i)])
-            grads['W%i'%(i+1)] += self.reg * self.params['W%i'%(i+1)] # add regularization for all layers
-        i -= 1 # decrement one more time after loop termination
-        dx, grads['W%i' % (i + 1)], grads['b' + str(i + 1)] = affine_backward(dx, self.cache['W%i' % (i + 1)])
+        if self.use_batchnorm:
+            dx = grad_loss  # for last layer only, then it will be updated !
+            dx, grads['W%i' % self.num_layers], grads['b%i' % self.num_layers] = \
+                affine_backward(dx, self.cache[self.num_layers])
+
+            for i in xrange(self.num_layers - 2, -1, -1):  # iterate in reverse order
+                dx, grads['W%i' % (i + 1)], grads['b%i' % (i + 1)], grads['gamma%i' % (i + 1)], grads['beta%i' % (i + 1)] = \
+                    affine_bn_relu_backward(dx, self.cache[(i + 1)])
+
+            # add regularization
+            for i in xrange(self.num_layers, 0, -1):
+                grads['W%i' % i] += self.reg * self.params['W%i' % i]
+
+        else:
+            dx = grad_loss  # for last layer only, then it will be updated !
+            dx, grads['W%i' % self.num_layers], grads['b%i' % self.num_layers] = \
+                affine_backward(dx, self.cache[self.num_layers])
+
+            for i in xrange(self.num_layers - 2, -1, -1):  # iterate in reverse order
+                dx, grads['W%i' % (i + 1)], grads['b%i' % (i + 1)] = \
+                    affine_relu_backward(dx, self.cache[(i+1)])
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
