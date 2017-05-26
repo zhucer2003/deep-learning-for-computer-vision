@@ -164,6 +164,7 @@ class FullyConnectedNet(object):
         self.dtype = dtype
         self.params = {}
         self.cache = {}
+        self.cache_do = {}
         ############################################################################
         # TODO: Initialize the parameters of the network, storing all values in    #
         # the self.params dictionary. Store weights and biases for the first layer #
@@ -256,20 +257,20 @@ class FullyConnectedNet(object):
         ############################################################################
 
         out = X  # for first layer, but these will update!
-        if self.use_batchnorm:
-            for i in xrange(self.num_layers-1):
+        for i in xrange(self.num_layers - 1):
+            if self.use_batchnorm:
                 out, self.cache[i+1] = affine_bn_relu_forward(x=out, w=self.params['W%i'%(i+1)], b=self.params['b%i'%(i+1)],
                                                               gamma=self.params['gamma%i'%(i+1)], beta=self.params['beta%i'%(i+1)], bn_param=self.bn_params[i])
-            # last layer has no ReLU activation
-            fwd, self.cache[self.num_layers] = affine_forward(out, self.params['W%i' % (self.num_layers)],
-                                                              self.params['b%i' % (self.num_layers)])
-        else:
-            for i in xrange(self.num_layers-1):
+            else:
                 out, self.cache[i+1] = \
                     affine_relu_forward(out, self.params['W%i'%(i+1)], self.params['b%i'%(i+1)])
-            # last layer has no ReLU activation
-            fwd, self.cache[self.num_layers] = affine_forward(out, self.params['W%i' % (self.num_layers)],
-                                                              self.params['b%i' % (self.num_layers)])
+
+            if self.use_dropout:
+                out, self.cache_do[i+1] = dropout_forward(out, self.dropout_param)
+
+        # last layer has no ReLU activation
+        fwd, self.cache[self.num_layers] = affine_forward(out, self.params['W%i' % (self.num_layers)],
+                                                          self.params['b%i' % (self.num_layers)])
 
         scores = fwd
         ############################################################################
@@ -297,7 +298,6 @@ class FullyConnectedNet(object):
         ############################################################################
 
         data_loss, grad_loss = softmax_loss(scores, y)
-        
         # add regularization
         for i in range(self.num_layers):
             reg_loss += 0.5 * self.reg * np.sum(self.params['W%i'%(i+1)] * self.params['W%i'%(i+1)])
@@ -309,15 +309,18 @@ class FullyConnectedNet(object):
                 affine_backward(dx, self.cache[self.num_layers])
 
             for i in xrange(self.num_layers - 2, -1, -1):  # iterate in reverse order
+                if self.use_dropout:
+                    dx = dropout_backward(dx, self.cache_do[(i + 1)])
                 dx, grads['W%i' % (i + 1)], grads['b%i' % (i + 1)], grads['gamma%i' % (i + 1)], grads['beta%i' % (i + 1)] = \
                     affine_bn_relu_backward(dx, self.cache[(i + 1)])
-
         else:
             dx = grad_loss  # for last layer only, then it will be updated !
             dx, grads['W%i' % self.num_layers], grads['b%i' % self.num_layers] = \
                 affine_backward(dx, self.cache[self.num_layers])
 
             for i in xrange(self.num_layers - 2, -1, -1):  # iterate in reverse order
+                if self.use_dropout:
+                    dx = dropout_backward(dx, self.cache_do[(i + 1)])
                 dx, grads['W%i' % (i + 1)], grads['b%i' % (i + 1)] = \
                     affine_relu_backward(dx, self.cache[(i+1)])
 
