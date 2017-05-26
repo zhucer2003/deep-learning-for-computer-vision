@@ -295,8 +295,9 @@ class FullyConnectedNet(object):
         # automated tests, make sure that your L2 regularization includes a factor #
         # of 0.5 to simplify the expression for the gradient.                      #
         ############################################################################
-        
+
         data_loss, grad_loss = softmax_loss(scores, y)
+        
         # add regularization
         for i in range(self.num_layers):
             reg_loss += 0.5 * self.reg * np.sum(self.params['W%i'%(i+1)] * self.params['W%i'%(i+1)])
@@ -311,10 +312,6 @@ class FullyConnectedNet(object):
                 dx, grads['W%i' % (i + 1)], grads['b%i' % (i + 1)], grads['gamma%i' % (i + 1)], grads['beta%i' % (i + 1)] = \
                     affine_bn_relu_backward(dx, self.cache[(i + 1)])
 
-            # add regularization
-            for i in xrange(self.num_layers, 0, -1):
-                grads['W%i' % i] += self.reg * self.params['W%i' % i]
-
         else:
             dx = grad_loss  # for last layer only, then it will be updated !
             dx, grads['W%i' % self.num_layers], grads['b%i' % self.num_layers] = \
@@ -323,6 +320,10 @@ class FullyConnectedNet(object):
             for i in xrange(self.num_layers - 2, -1, -1):  # iterate in reverse order
                 dx, grads['W%i' % (i + 1)], grads['b%i' % (i + 1)] = \
                     affine_relu_backward(dx, self.cache[(i+1)])
+
+        # add regularization
+        for i in xrange(self.num_layers, 0, -1):
+            grads['W%i' % i] += self.reg * self.params['W%i' % i]
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
