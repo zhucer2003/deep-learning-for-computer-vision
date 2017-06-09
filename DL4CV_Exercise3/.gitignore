@@ -1,0 +1,9 @@
+*.pyc
+*.p
+*.DS_Store
+.idea/*
+DL4CV_Exercise3/.ipynb_checkpoints/*
+.idea/vcs.xml
+segmentation_data/*
+datasets/*
+
