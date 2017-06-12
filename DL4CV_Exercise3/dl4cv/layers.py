@@ -1,4 +1,3 @@
-from __future__ import division
 import numpy as np
 
 def conv_forward_naive(x, w, b, conv_param):
@@ -33,18 +32,14 @@ def conv_forward_naive(x, w, b, conv_param):
     N, C, H, W = x.shape
     F, C, HH, WW = w.shape
     stride, pad = conv_param['stride'], conv_param['pad']
-    # spatial output of activation map can be derived from above variables
     H_p = 1 + (H + 2 * pad - HH) / stride
     W_p = 1 + (W + 2 * pad - WW) / stride
-    # for the moment assert necessary conditions
-    assert int(H_p) == H_p, "H' not an integer"
-    assert int(W_p) == W_p, "W' not an integer"
 
-    H_p, W_p = int(H_p), int(W_p) # safe to cast after asserts
+    # H_p, W_p = int(H_p), int(W_p) # safe to cast after asserts
     out = np.zeros(shape=(N, F, H_p, W_p), dtype=x.dtype) # allocate known memory for out
     # specify (n_before, n_after) for rows and cols for each dimension
     # e.g. (1,1) specifies to add one row above, one row below and one column before and one column after
-    npad = ((0, 0), (1, 1), (1, 1))
+    npad = ((0, 0), (pad, pad), (pad, pad))
 
     for n in xrange(N): # for each sample
         inp = np.pad(x[n, :, :, :], pad_width=npad, mode='constant', constant_values=0)
@@ -86,13 +81,10 @@ def conv_backward_naive(dout, cache):
     N, C, H, W = x.shape
     F, C, HH, WW = w.shape
     stride, pad = conv_param['stride'], conv_param['pad']
-    # spatial output of activation map can be derived from above variables
     H_p = 1 + (H + 2 * pad - HH) / stride
     W_p = 1 + (W + 2 * pad - WW) / stride
 
-    H_p, W_p = int(H_p), int(W_p)  # safe to cast after asserts
-
-    npad = ((0, 0), (1, 1), (1, 1))
+    npad = ((0, 0), (pad, pad), (pad, pad))
 
     # backprop on b
     db = np.zeros_like(b)
@@ -146,29 +138,42 @@ def max_pool_forward_naive(x, pool_param):
 
     Returns a tuple of:
     - out: Output data
-    - cache: (x, pool_param) for the backward pass
+    - cache: (x, maxIdx, pool_param) for the backward pass with maxIdx, of shape (N, C, H, W, 2)
     """
     out = None
     #############################################################################
     # TODO: Implement the max pooling forward pass                              #
     #############################################################################
     N, C, H, W = x.shape
-    Hp, Wp, S = pool_param['pool_height'], pool_param['pool_width'], pool_param['stride']
-    H2, W2 = (H - Hp) / S + 1, (W - Wp) / S + 1
-    assert int(H2) == H2, 'H1 not an integer'
-    assert int(W2) == W2, 'H2 not an integer'
-    H2, W2 = int(H2), int(W2)
+    pool_height = pool_param['pool_height']
+    pool_width = pool_param['pool_width']
+    stride = pool_param['stride']
 
-    out = np.zeros(shape=(N, C, H2, W2))
-    for n in range(N):
-        for c in range(C):
-            for h2 in range(H2):
-                for w2 in range(W2):
-                    out[n, c, h2, w2] = np.max(x[n, c, h2*S:h2*S+Hp, w2*S:w2*S+Wp])
+    output_height = 1 + (H - pool_height) / stride
+    output_width = 1 + (W - pool_width) / stride
+
+    maxIdx = np.zeros(shape=(N, C, output_height, output_width, 2))
+    out = np.zeros(shape=(N, C, output_height, output_width))
+
+    for n in range(N): # over all images
+        for c in range(C): # over all channels
+            for hh in range(output_height): # over output height
+                h_range = (hh * stride, hh * stride + pool_height)
+
+                for ww in range(output_width): # over output width
+                    w_range = (ww * stride, ww * stride + pool_width)
+
+                    max_pool = np.max(x[n, c, h_range[0]:h_range[1], w_range[0]:w_range[1]])
+                    out[n, c, hh, ww] = max_pool
+
+                    for i in range(h_range[0], h_range[1]): # over height in pooling region
+                        for j in range(w_range[0], w_range[1]): # over width in pooling region
+                            if x[n, c, i, j] == max_pool:
+                                maxIdx[n, c, hh, ww, :] = i - h_range[0], j - w_range[0]
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################
-    cache = (x, pool_param)
+    cache = (x, maxIdx, pool_param)
     return out, cache
 
 
@@ -179,6 +184,7 @@ def max_pool_backward_naive(dout, cache):
     Inputs:
     - dout: Upstream derivatives
     - cache: A tuple of (x, pool_param) as in the forward pass.
+    - cache: A tuple of (x, maxIdx, pool_param) as in the forward pass.
 
     Returns:
     - dx: Gradient with respect to x
@@ -187,26 +193,29 @@ def max_pool_backward_naive(dout, cache):
     #############################################################################
     # TODO: Implement the max pooling backward pass                             #
     #############################################################################
-    x, pool_param = cache
+    x, maxIdx, pool_param = cache
     N, C, H, W = x.shape
-    Hp, Wp, S = pool_param['pool_height'], pool_param['pool_width'], pool_param['stride']
-    H2, W2 = (H - Hp) / S + 1, (W - Wp) / S + 1
-    H2, W2 = int(H2), int(W2)
+    pool_height = pool_param['pool_height']
+    pool_width = pool_param['pool_width']
+    stride = pool_param['stride']
+
+    output_height = (H - pool_height) / stride + 1
+    output_width = (W - pool_width) / stride + 1
+
     dx = np.zeros_like(x)
+    filter_window = np.zeros(shape=(pool_height, pool_width), dtype=int)
 
-    for nprime in range(N):
-        for cprime in range(C):
-            for i in range(H):
-                for j in range(W):
-                    for k in range(H2):
-                        for l in range(W2):
-                            x_pooling = x[nprime, cprime, k*S:k*S+Hp, l*S:l*S+Wp]
-                            x_max = np.max(x_pooling)
-                            x_mask = x[nprime, cprime, :, :] == x_max
-                            p_max, q_max = np.unravel_index(x_mask.argmax(), x_mask.shape)
-                            if i == p_max and j == q_max:
-                                dx[nprime, cprime, i, j] += dout[nprime, cprime, k, l]
-
+    for n in range(N):
+        for c in range(C):
+            for hh in range(output_height):
+                h_range = (hh * stride, hh * stride + pool_height)
+                for ww in range(output_width):
+                    w_range = (ww * stride, ww * stride + pool_width)
+                    x_max, y_max = maxIdx[n, c, hh, ww, :]
+                    x_max, y_max = int(x_max), int(y_max)
+                    filter_window[:,:] = 0
+                    filter_window[x_max, y_max] = 1
+                    dx[n, c, h_range[0]:h_range[1], w_range[0]:w_range[1]] = filter_window * dout[n, c, hh, ww]
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################
