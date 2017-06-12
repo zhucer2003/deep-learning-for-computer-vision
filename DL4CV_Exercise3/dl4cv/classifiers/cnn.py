@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.init as init
 
 
 class ThreeLayerCNN(nn.Module):
@@ -92,10 +93,15 @@ class ThreeLayerCNN(nn.Module):
 
         self.conv = nn.Conv2d(in_channels=channels, out_channels=num_filters, kernel_size=kernel_size,
                               stride=stride, padding=pad, bias=True)
-        self.conv.weight.data = weight_scale * self.conv.weight.data # weight scale
+        # self.conv.weight.data = weight_scale * self.conv.weight.data # weight scale
+        init.xavier_normal(self.conv.weight, gain=np.sqrt(2))
+        init.constant(self.conv.bias, 0.001)
         self.fc1 = nn.Linear(in_features=lin_input, out_features=hidden_dim, bias=True)
+        init.xavier_normal(self.fc1.weight, gain=np.sqrt(2))
+        init.constant(self.fc1.bias, 0.001)
         self.fc2 = nn.Linear(in_features=hidden_dim, out_features=num_classes, bias=True)
-
+        init.xavier_normal(self.fc2.weight, gain=np.sqrt(2))
+        init.constant(self.fc2.bias, 0.001)
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
