@@ -69,31 +69,8 @@ class ThreeLayerCNN(nn.Module):
         self.num_classes = num_classes
         self.dropout = dropout
 
-        # self.conv = nn.Sequential(
-        #     nn.Conv2d(in_channels=channels, out_channels=num_filters, kernel_size=kernel_size,
-        #               stride=stride, padding=pad, bias=True),
-        #     nn.ReLU(),
-        #     nn.MaxPool2d(kernel_size=pool)
-        # )
-        # self.fc = nn.Sequential(
-        #     nn.Linear(in_features=lin_input, out_features=hidden_dim, bias=True),
-        #     nn.Dropout(),
-        #     nn.ReLU(),
-        #     nn.Linear(in_features=hidden_dim, out_features=num_classes, bias=True)
-        # )
-
-        # self.conv = nn.Conv2d(in_channels=channels, out_channels=num_filters, kernel_size=kernel_size,
-        #                       stride=stride, padding=pad, bias=True)
-        # self.conv_relu = nn.ReLU(),
-        # self.pool = nn.MaxPool2d(kernel_size=pool)
-        # self.fc = nn.Linear(in_features=lin_input, out_features=hidden_dim, bias=True)
-        # self.fc_dropout = nn.Dropout()
-        # self.fc2_relu = nn.ReLU()
-        # self.fc2 = nn.Linear(in_features=hidden_dim, out_features=num_classes, bias=True)
-
         self.conv = nn.Conv2d(in_channels=channels, out_channels=num_filters, kernel_size=kernel_size,
                               stride=stride, padding=pad, bias=True)
-        # self.conv.weight.data = weight_scale * self.conv.weight.data # weight scale
         init.xavier_normal(self.conv.weight, gain=np.sqrt(2))
         init.constant(self.conv.bias, 0.001)
         self.fc1 = nn.Linear(in_features=lin_input, out_features=hidden_dim, bias=True)

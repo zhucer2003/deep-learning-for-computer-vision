@@ -1,7 +1,8 @@
 from random import shuffle
 import numpy as np
 import time
-
+import torch.nn as nn
+import copy
 import torch
 from torch.autograd import Variable
 
@@ -30,7 +31,7 @@ class Solver(object):
         self.train_acc_history = []
         self.val_acc_history = []
 
-    def train(self, model, train_loader, val_loader, num_epochs=10, log_nth=1):
+    def train(self, model, dataset_loader, train_loader, val_loader, num_epochs=10, log_nth=1):
         """
         Train a given model with the provided data.
 
@@ -41,11 +42,15 @@ class Solver(object):
         - num_epochs: total number of training epochs
         - log_nth: log training accuracy and loss every nth iteration
         """
+        dset_sizes = {x: len(dataset_loader[x]) for x in ['train', 'val']}
+
         optim = self.optim(model.parameters(), **self.optim_args)
         self._reset_histories()
         iter_per_epoch = len(train_loader)
         num_iterations = num_epochs * iter_per_epoch
         t = 0
+        best_model = None
+        best_acc = 0.0
         print 'START TRAIN.'
         ############################################################################
         # TODO:                                                                    #
@@ -67,49 +72,66 @@ class Solver(object):
         #   ...                                                                    #
         ############################################################################
         start_time = time.time()
+
+        # iterate over epochs
         for epoch in xrange(num_epochs):
-            for iter, (x_batch, y_batch) in enumerate(train_loader):
-                optim.zero_grad()
-                x = Variable(x_batch, requires_grad=False)
-                y = Variable(y_batch, requires_grad=False)
-                x_out = model(x)
-                loss = self.loss_func(x_out, y)
-                loss.backward()
-                optim.step()
 
-                self.train_loss_history.append(loss.data[0])
+            # iterate first over training phase
+            for phase in ['train', 'val']:
+                # don't train model during validation !
+                if phase == 'train':
+                    model.train(True)
+                else:
+                    model.train(False)
 
-                if t % log_nth == 0:
-                    print '[Iteration %d / %d] TRAIN loss: %f' % \
-                          (t + 1, num_iterations, self.train_loss_history[-1])
-                t += 1
+                running_loss = 0.0
+                running_corrects = 0
 
-            y_pred = np.argmax(x_out.data.cpu().numpy(), axis=1)
-            pred_acc = np.count_nonzero(y_pred == y.data.cpu().numpy()) / float(len(y_pred))
-            self.train_acc_history.append(pred_acc)
+                # iterate over the corresponding data in each phase
+                for iter, data in enumerate(dataset_loader[phase]):
 
-            print '[Epoch %d / %d] TRAIN acc/loss: %f/%f' % \
-                  (epoch+1, num_epochs, self.train_acc_history[-1], self.train_loss_history[-1])
+                    inputs, labels = data
+                    # set gradients to zero for each mini_batch iteration !
+                    optim.zero_grad()
 
-            y_val_pred = []
+                    inputs = Variable(inputs, requires_grad=False)
+                    labels = Variable(labels, requires_grad=False)
 
-            for x_val_batch, y_val_batch in val_loader:
-                x_val = Variable(x_val_batch, requires_grad=False)
-                y_val = Variable(y_val_batch, requires_grad=False)
-                x_val_out = model(x_val)
-                val_loss = self.loss_func(x_val_out, y_val)
+                    outputs = model(inputs)
+                    _, preds = torch.max(outputs.data, 1)
+                    loss = self.loss_func(outputs, labels)
 
-                y_pred = np.argmax(x_val_out.data.cpu().numpy(), axis=1)
-                val_pred_acc = np.count_nonzero(y_pred == y_val.data.cpu().numpy()) / float(len(y_pred))
-                y_val_pred.append(val_pred_acc)
-            val_pred_acc = np.mean(y_val_pred)
-            self.val_acc_history.append(val_pred_acc)
+                    if phase == 'train':
+                        loss.backward()
+                        optim.step()
 
-            print '[Epoch %d / %d] VAL acc/loss: %f/%f' % \
-                  (epoch + 1, num_epochs, self.val_acc_history[-1], val_loss.data[0])
+                        self.train_loss_history.append(loss.data[0])
+
+                        if t % log_nth == 0:
+                            print '[Iteration %d / %d] TRAIN loss: %f' % \
+                              (t + 1, num_iterations, self.train_loss_history[-1])
+                        t += 1
+
+                    running_corrects += torch.sum(preds == labels.data)
+                    running_loss =+ loss.data[0]
+
+                epoch_loss = running_loss / dset_sizes[phase]
+                epoch_acc = running_corrects / dset_sizes[phase]
+
+                if phase == 'train':
+                    self.train_acc_history.append(epoch_acc)
+                    print '[Epoch %d / %d] TRAIN acc: %f' % (epoch + 1, num_epochs, self.train_acc_history[-1])
+
+                if phase == 'val':
+                    self.val_acc_history.append(epoch_acc)
+                    print '[Epoch %d / %d] VAL acc: %f' % (epoch + 1, num_epochs, self.val_acc_history[-1])
+
+
+
 
         print('Trained in {0} seconds.'.format(int(time.time() - start_time)))
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
         print 'FINISH.'
+        return best_model
