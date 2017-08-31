@@ -17,7 +17,7 @@ class TwoLayerNet(object):
     The outputs of the second fully-connected layer are the scores for each class.
     """
 
-    def __init__(self, input_size, hidden_size, output_size, weight_init='he', momentum=0.5, std=1e-4):
+    def __init__(self, input_size, hidden_size, output_size, momentum=0.5, std=1e-4):
         """
         Initialize the model. Weights are initialized to small random values and
         biases are initialized to zero. Weights and biases are stored in the
@@ -35,27 +35,14 @@ class TwoLayerNet(object):
         """
         self.params = {}
         self.momentum = momentum
-
-        if weight_init == 'normal':
-            self.params['W1'] = std * np.random.randn(input_size, hidden_size)
-            self.params['b1'] = np.zeros(hidden_size)
-            self.params['W2'] = std * np.random.randn(hidden_size, output_size)
-            self.params['b2'] = np.zeros(output_size)
-        if weight_init == 'he':
-            # [He et al., 2015]
-            self.params['W1'] = np.random.randn(input_size, hidden_size) * np.sqrt(2.0/(input_size + hidden_size))
-            self.params['b1'] = self.params['b1'] = np.zeros(hidden_size) # np.random.randn(hidden_size) * np.sqrt(2.0/hidden_size)
-            self.params['W2'] = np.random.randn(hidden_size, output_size) * np.sqrt(2.0/(hidden_size + output_size))
-            self.params['b2'] = self.params['b2'] = np.zeros(output_size) # np.random.randn(output_size) * np.sqrt(2.0/output_size)
-
         self.first_moments = {}
-        self.first_moments_prev = {} # nesterov
-        self.second_moments = {}
+
+        self.params['W1'] = std * np.random.randn(input_size, hidden_size)
+        self.params['b1'] = np.zeros(hidden_size)
+        self.params['W2'] = std * np.random.randn(hidden_size, output_size)
+        self.params['b2'] = np.zeros(output_size)
 
         self.first_moments['W1'], self.first_moments['b1'], self.first_moments['W2'], self.first_moments['b2'] = 0, 0, 0, 0
-        self.second_moments['W1'], self.second_moments['b1'], self.second_moments['W2'], self.second_moments['b2'] = 0, 0, 0, 0
-
-        self.first_moments_prev['W1'], self.first_moments_prev['b1'], self.first_moments_prev['W2'], self.first_moments_prev['b2'] = 0, 0, 0, 0
 
     def loss(self, X, y=None, reg=0.0):
         """
@@ -163,9 +150,7 @@ class TwoLayerNet(object):
         return loss, grads
 
     def train(self, X, y, X_val, y_val,
-              learning_rate=1e-3, learning_rate_decay=0.95, beta1=0.9, beta2 = 0.999, delta=1e-8,
-              reg=1e-5, num_iters=100,
-              batch_size=200, verbose=False):
+              learning_rate=1e-3, learning_rate_decay=0.95, reg=1e-5, num_iters=100, batch_size=200, verbose=False):
         """
         Train this neural network using stochastic gradient descent.
     
@@ -228,34 +213,16 @@ class TwoLayerNet(object):
             #########################################################################
 
             # Vanilla SGD
-            # self.params['W1'] -= learning_rate * grads['W1']
-            # self.params['b1'] -= learning_rate * grads['b1']
-            # self.params['W2'] -= learning_rate * grads['W2']
-            # self.params['b2'] -= learning_rate * grads['b2']
+            #self.params['W1'] -= learning_rate * grads['W1']
+            #self.params['b1'] -= learning_rate * grads['b1']
+            #self.params['W2'] -= learning_rate * grads['W2']
+            #self.params['b2'] -= learning_rate * grads['b2']
 
             # Momentum SGD
-            # for i in self.params.iterkeys():
-            #     # integrate velocity
-            #     self.first_moments[i] = self.momentum * self.first_moments[i] - learning_rate * grads[i]
-            #     self.params[i] += self.first_moments[i] # integrate position
-
-            # Nesterov SGD
-            for i in self.first_moments_prev.iterkeys():
-                self.first_moments_prev[i] = self.first_moments[i] # back up velocity
-                # update velocity
+            for i in self.params.iterkeys():
+                # integrate velocity
                 self.first_moments[i] = self.momentum * self.first_moments[i] - learning_rate * grads[i]
-                self.params[i] += -self.momentum * self.first_moments_prev[i] + (1 + self.momentum) * self.first_moments[i]
-
-
-            # Adam SGD
-            # for i in self.params.iterkeys():
-            #     self.first_moments[i] = beta1 * self.first_moments[i] + (1 - beta1) * grads[i]  # first order moment
-            #     self.first_moments[i] = self.first_moments[i] / (1-beta1**it) # unbias
-            #
-            #     self.second_moments[i] = beta2 * self.second_moments[i] + (1-beta2)*(grads[i]**2) # second order moment
-            #     self.second_moments[i] = self.second_moments[i] / (1-beta2**it) # unbias
-            #
-            #     self.params[i] += -learning_rate * self.first_moments[i] / (delta + np.sqrt(self.second_moments[i]))
+                self.params[i] += self.first_moments[i] # integrate position
 
 
             #########################################################################
@@ -315,5 +282,6 @@ class TwoLayerNet(object):
         ###########################################################################
 
         return y_pred
+
 
 
