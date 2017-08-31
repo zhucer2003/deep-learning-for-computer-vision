@@ -14,12 +14,13 @@ class Solver(object):
                          "weight_decay": 0.0}
 
     def __init__(self, optim=torch.optim.Adam, optim_args={},
-                 loss_func=torch.nn.CrossEntropyLoss):
+                 loss_func=torch.nn.CrossEntropyLoss, use_gpu=False):
         optim_args_merged = self.default_adam_args.copy()
         optim_args_merged.update(optim_args)
         self.optim_args = optim_args_merged
         self.optim = optim
         self.loss_func = loss_func()
+        self.use_gpu = use_gpu
 
         self._reset_histories()
 
@@ -31,7 +32,7 @@ class Solver(object):
         self.train_acc_history = []
         self.val_acc_history = []
 
-    def train(self, model, dataset_loader, train_loader, val_loader, num_epochs=10, log_nth=1):
+    def train(self, model, train_loader, val_loader, num_epochs=10, log_nth=1):
         """
         Train a given model with the provided data.
 
@@ -42,8 +43,12 @@ class Solver(object):
         - num_epochs: total number of training epochs
         - log_nth: log training accuracy and loss every nth iteration
         """
+        if self.use_gpu:
+           model = model.cuda()
+        dataset_loader = {}
+        dataset_loader['train'] = train_loader
+        dataset_loader['val'] = val_loader
         dset_sizes = {x: len(dataset_loader[x]) for x in ['train', 'val']}
-
         optim = self.optim(model.parameters(), **self.optim_args)
         self._reset_histories()
         iter_per_epoch = len(train_loader)
@@ -94,6 +99,8 @@ class Solver(object):
                     # set gradients to zero for each mini_batch iteration !
                     optim.zero_grad()
 
+                    if self.use_gpu:
+                       inputs, labels = inputs.cuda(), labels.cuda()
                     inputs = Variable(inputs, requires_grad=False)
                     labels = Variable(labels, requires_grad=False)
 
