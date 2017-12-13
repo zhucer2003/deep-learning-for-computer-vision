@@ -6,6 +6,7 @@ import copy
 import torch
 from torch.autograd import Variable
 from torchvision import transforms
+import torch.nn.functional as F
 
 class Solver(object):
     default_adam_args = {"lr": 1e-4,
@@ -13,14 +14,12 @@ class Solver(object):
                          "eps": 1e-8,
                          "weight_decay": 0.0}
 
-    def __init__(self, optim=torch.optim.Adam, optim_args={},
-                 loss_func=torch.nn.CrossEntropyLoss, use_gpu=False):
+    def __init__(self, optim=torch.optim.Adam, optim_args={}, num_classes=23):
         optim_args_merged = self.default_adam_args.copy()
         optim_args_merged.update(optim_args)
         self.optim_args = optim_args_merged
         self.optim = optim
-        self.loss_func = loss_func()
-        self.use_gpu = use_gpu
+        self.num_classes = num_classes
 
         self._reset_histories()
 
@@ -31,12 +30,9 @@ class Solver(object):
         self.train_loss_history = []
         self.train_acc_history = []
         self.val_acc_history = []
+        self.epoch_loss = []
 
-<<<<<<< HEAD
-    def train(self, model, dataset_loader, num_epochs=10, log_nth=1):
-=======
-    def train(self, model, train_loader, val_loader, num_epochs=10, log_nth=1):
->>>>>>> 22f8a6ce6a2aa50d143d40debb64ee060546410f
+    def train(self, model, dataset_loader, num_epochs=10, log_nth=100):
         """
         Train a given model with the provided data.
 
@@ -47,25 +43,15 @@ class Solver(object):
         - num_epochs: total number of training epochs
         - log_nth: log training accuracy and loss every nth iteration
         """
-        if self.use_gpu:
-           model = model.cuda()
-        dataset_loader = {}
-        dataset_loader['train'] = train_loader
-        dataset_loader['val'] = val_loader
-        dset_sizes = {x: len(dataset_loader[x]) for x in ['train', 'val']}
-<<<<<<< HEAD
 
-        # optim = self.optim(model.parameters(), **self.optim_args)
-        optim = self.optim
-=======
         optim = self.optim(model.parameters(), **self.optim_args)
->>>>>>> 22f8a6ce6a2aa50d143d40debb64ee060546410f
         self._reset_histories()
-        iter_per_epoch = len(dataset_loader['train'])
-        num_iterations = num_epochs * iter_per_epoch
         t = 0
-        best_model = None
-        best_acc = 0.0
+        num_iterations = len(dataset_loader['train']) * num_epochs
+        # give background zero weight, all other classes get equal weight of one !
+        weight = torch.ones(self.num_classes)
+        weight[0] = 0
+
         print 'START TRAIN.'
         ############################################################################
         # TODO:                                                                    #
@@ -90,64 +76,58 @@ class Solver(object):
         # iterate over epochs
         for epoch in xrange(num_epochs):
 
+            epoch_loss = 0.0
+
             # iterate first over training phase
-            for phase in ['train', 'val']:
+            for phase in ['train']:
                 # don't train model during validation !
                 if phase == 'train':
                     model.train(True)
                 else:
                     model.train(False)
 
-                running_loss = 0.0
-                running_corrects = 0
 
                 # iterate over the corresponding data in each phase
                 for data in dataset_loader[phase]:
 
                     inputs, labels = data
+
+                    inputs = Variable(inputs)
+                    labels = Variable(labels)
+                    outputs = model(inputs)
+
                     # set gradients to zero for each mini_batch iteration !
                     optim.zero_grad()
 
-                    if self.use_gpu:
-                       inputs, labels = inputs.cuda(), labels.cuda()
-                    inputs = Variable(inputs, requires_grad=False)
-                    labels = Variable(labels, requires_grad=False)
-
-                    outputs = model(inputs)
-                    _, preds = torch.max(outputs.data, 1)
-                    loss = self.loss_func(outputs, labels)
-
+                    loss = self.wrap(outputs, labels, weight=weight, pixel_average=True)
+                    epoch_loss += loss.data[0]
                     if phase == 'train':
-                        loss.backward()
-                        optim.step()
-
-                        self.train_loss_history.append(loss.data[0])
-
                         if t % log_nth == 0:
                             print '[Iteration %d / %d] TRAIN loss: %f' % \
-                              (t + 1, num_iterations, self.train_loss_history[-1])
+                                  (t + 1, num_iterations, loss.data[0])
                         t += 1
-
-                    running_corrects += torch.sum(preds == labels.data)
-                    running_loss =+ loss.data[0]
-
-                epoch_loss = running_loss / dset_sizes[phase]
-                epoch_acc = running_corrects / dset_sizes[phase]
-
-                if phase == 'train':
-                    self.train_acc_history.append(epoch_acc)
-                    print '[Epoch %d / %d] TRAIN acc: %f' % (epoch + 1, num_epochs, self.train_acc_history[-1])
-
-                if phase == 'val':
-                    self.val_acc_history.append(epoch_acc)
-                    print '[Epoch %d / %d] VAL acc: %f' % (epoch + 1, num_epochs, self.val_acc_history[-1])
-
-
-
-
+                        loss.backward()
+                        optim.step()
+                print('[Epoch %d / %d] TRAIN acc: %f' % (epoch + 1, num_epochs, epoch_loss))
         print('Trained in {0} seconds.'.format(int(time.time() - start_time)))
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
         print 'FINISH.'
-        return best_model
+
+    def wrap(self, inputs, targets, weight=None, pixel_average=True):
+        n, c, h, w = inputs.size()
+
+        # after this we have n, h, w, c = inputs.size()
+        inputs = inputs.transpose(1, 2).transpose(2, 3).contiguous()
+        # expand targets to a tensor with depth of c
+        inputs = inputs[targets.view(n, h, w, 1).repeat(1, 1, 1, c) >= 0].view(-1, c)
+
+        # also exclude background and unlabeled
+        targets_mask = targets >= 0
+        targets = targets[targets_mask]
+
+        loss = F.cross_entropy(inputs, targets, weight=weight, size_average=False)
+        if pixel_average:
+            loss /= targets_mask.data.sum()
+        return loss
